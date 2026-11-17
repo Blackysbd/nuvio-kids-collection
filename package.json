@@ -1,0 +1,1 @@
+{"name":"nuvio-kids-collection","version":"1.0.0","private":true,"description":"Eight curated Kids folders for Nuvio","main":"server.js","scripts":{"start":"node server.js","test":"node --test"},"engines":{"node":">=20"}}
