@@ -3,6 +3,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const { URL } = require('node:url');
+const pathModule = require('node:path');
 const titles = JSON.parse(fs.readFileSync(__dirname + '/titles.json', 'utf8'));
 const PORT = Number(process.env.PORT || 3000);
 const KEY = process.env.TMDB_API_KEY || '';
@@ -10,7 +11,7 @@ const TOKEN = process.env.TMDB_READ_ACCESS_TOKEN || '';
 const ID = 'org.personal.nuvio.kids.collection';
 const categories = Object.entries(titles);
 const catalogs = categories.flatMap(([slug, section]) => ['movie','series'].filter(t => section[t === 'movie' ? 'movies' : 'series'].length).map(type => ({type,id:`kids-${type}-${slug}`,name:`${section.name} — ${type === 'movie' ? 'Movies' : 'Shows'}`,extra:[{name:'skip',isRequired:false}],isSearchOnly:true})));
-const manifest = {id:ID,version:'1.0.0',name:'My Kids Collection',description:'Eight curated kids catalogues for Nuvio. Discovery and metadata only; no streams.',resources:['catalog','meta'],types:['movie','series'],catalogs};
+const manifest = {id:ID,version:'1.2.0',name:'My Kids Collection',description:'Eight expanded kids catalogues for Nuvio. Discovery and metadata only; no streams.',resources:['catalog','meta'],types:['movie','series'],catalogs};
 const cache = new Map();
 const ttl = 24*60*60*1000;
 const norm = s => (s||'').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -51,8 +52,25 @@ const server=http.createServer(async(req,res)=>{
   if(path==='/manifest.json')return json(res,200,manifest);
   if(path==='/collections.json'){
    const origin=(process.env.PUBLIC_BASE_URL||`https://${req.headers.host||'localhost'}`).replace(/\/$/,'');
-   const pack=[{id:'collection-my-kids-eight',title:'Kids',pinToTop:true,showAllTab:false,viewMode:'TABBED_GRID',focusGlowEnabled:false,folders:categories.map(([slug,section])=>({id:'folder-my-kids-'+slug,title:section.name,tileShape:'LANDSCAPE',hideTitle:false,focusGifEnabled:false,catalogSources:['movie','series'].filter(t=>section[t==='movie'?'movies':'series'].length).map(t=>({addonId:ID,catalogId:`kids-${t}-${slug}`,type:t}))}))}];
+   const pack=[{id:'collection-my-kids-eight',title:'Kids',pinToTop:true,showAllTab:false,viewMode:'TABBED_GRID',focusGlowEnabled:false,folders:categories.map(([slug,section])=>({
+     id:'folder-my-kids-'+slug,title:section.name,
+     coverImageUrl:`${origin}/artwork/${slug}/cover.webp`,
+     heroBackdropUrl:`${origin}/artwork/${slug}/hero.webp`,
+     tileShape:'LANDSCAPE',hideTitle:true,focusGifEnabled:false,
+     catalogSources:['movie','series'].filter(t=>section[t==='movie'?'movies':'series'].length).map(t=>({addonId:ID,catalogId:`kids-${t}-${slug}`,type:t}))
+   }))}];
    return json(res,200,pack);
+  }
+  const artworkPath=path.match(/^\/artwork\/([a-z0-9-]+)\/(cover|hero)\.webp$/);
+  if(artworkPath){
+    const [,slug,kind]=artworkPath;
+    if(!Object.hasOwn(titles,slug))return json(res,404,{error:'Unknown folder'});
+    const file=pathModule.join(__dirname,'artwork',slug,kind+'.webp');
+    return fs.readFile(file,(err,data)=>{
+      if(err)return json(res,404,{error:'Artwork missing'});
+      res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'public, max-age=3600','Access-Control-Allow-Origin':'*'});
+      res.end(data);
+    });
   }
   const cat=path.match(/^\/catalog\/(movie|series)\/([^/]+)(?:\/([^/]+))?\.json$/);
   if(cat){let [,type,cid,extras]=cat;const match=cid.match(/^kids-(movie|series)-([a-z0-9-]+)$/);if(!match||match[1]!==type||!titles[match[2]])return json(res,200,{metas:[]});const skip=Math.min(Math.max(0,Number(u.searchParams.get('skip') || (extras||'').match(/(?:^|&)skip=(\d+)/)?.[1] || 0)||0),1000);return json(res,200,{metas:await catalog(type,match[2],skip)});}
